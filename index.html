@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2b211b">
+<title>錢包掃描</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--acc:#e9825a;--cream:#faf6f1;--ink:#2b211b;--card:#fff}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:#000;color:#fff;font:16px/1.5 "Noto Sans TC",system-ui,sans-serif;overflow:hidden}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
+.top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + env(safe-area-inset-top)) 16px 12px;background:linear-gradient(#000a,#0000)}
+.top h1{font-size:18px;font-weight:700}
+.ib{width:48px;height:48px;border-radius:50%;border:0;background:#0007;color:#fff;display:grid;place-items:center}
+.ib svg{width:24px;height:24px}.ib.on{background:var(--acc)}
+.frame{position:fixed;left:50%;top:44%;width:min(78vw,340px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:28px;box-shadow:0 0 0 200vmax #0008;border:3px solid #f2b37f;transition:border-color .2s}
+.frame.hit{border-color:#7ed69a}
+.frame::after{content:"";position:absolute;left:8%;right:8%;height:2px;top:50%;background:#f2b37faa;animation:sweep 2s ease-in-out infinite}
+@keyframes sweep{0%,100%{top:15%}50%{top:85%}}
+@media(prefers-reduced-motion:reduce){.frame::after{animation:none}}
+.modes{position:fixed;left:50%;top:calc(44% + min(39vw,170px) + 22px);transform:translateX(-50%);display:flex;gap:6px;background:#0008;padding:4px;border-radius:999px}
+.modes button{border:0;border-radius:999px;background:none;color:#ddd;min-height:40px;padding:0 16px;font-size:15px}
+.modes button[aria-pressed=true]{background:var(--cream);color:var(--ink);font-weight:700}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--cream);color:var(--ink);border-radius:24px 24px 0 0;padding:18px 20px calc(18px + env(safe-area-inset-bottom));min-height:120px}
+.sheet p{color:#7a6658;font-size:15px}
+.sheet b{display:block;font-size:20px;margin-bottom:4px;color:var(--ink)}
+.sheet .row{display:flex;gap:10px;margin-top:14px}
+.btn{flex:1;min-height:48px;border-radius:14px;border:0;background:var(--acc);color:#fff;font-size:16px;font-weight:700}
+.btn.g{background:#efe5da;color:var(--ink)}
+.msg{position:fixed;inset:0;display:grid;place-items:center;padding:32px;text-align:center;background:var(--cream);color:var(--ink)}
+.msg h2{font-size:22px;margin-bottom:8px}.msg p{color:#7a6658;margin-bottom:18px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<video id="v" playsinline muted></video>
+<div class="top">
+  <button class="ib" id="back" aria-label="回記帳頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+  <h1>錢包掃描</h1>
+  <button class="ib" id="torch" aria-label="手電筒" style="visibility:hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6v5l-2 3v12h-2V10L9 7z"/></svg></button>
+</div>
+<div class="frame" id="frame"></div>
+<div class="modes" role="group" aria-label="掃描種類"><button data-m="inv" aria-pressed="true">發票</button><button data-m="bc" aria-pressed="false">商品條碼</button></div>
+<div class="sheet" id="sheet"><b id="st">對準發票左邊的 QR Code</b><p id="sp">讀到就會自動跳回記帳頁。</p><div class="row" id="acts" hidden><button class="btn g" id="again">再掃一次</button><button class="btn" id="go">回記帳頁</button></div></div>
+<div class="msg" id="err" hidden><div><h2 id="eh">需要相機權限</h2><p id="ep">請允許使用相機，才能掃描。</p><button class="btn" id="retry" style="min-width:200px">再試一次</button></div></div>
+<script>
+{
+const BOOK='https://claude.ai/artifact/AyNrWg5fySidkmtUmR9VBo';
+const $=s=>document.querySelector(s);
+const v=$('#v');let mode='inv',stream=null,det=null,busy=false,done=false,timer=null,jsqr=null,cv=null;
+const setMode=m=>{mode=m;for(const b of document.querySelectorAll('.modes button'))b.setAttribute('aria-pressed',b.dataset.m===m);reset()};
+function reset(){done=false;$('#frame').classList.remove('hit');$('#acts').hidden=true;
+  $('#st').textContent=mode==='inv'?'對準發票左邊的 QR Code':'對準商品上的條碼';$('#sp').textContent='讀到就會自動跳回記帳頁。'}
+function parseInv(raw){if(!/^[A-Z]{2}\d{8}\d{7}[0-9A-Za-z]{4}[0-9a-fA-F]{16}/.test(raw))return null;
+  const no=raw.slice(0,10),y=+raw.slice(10,13)+1911,d=y+raw.slice(13,17),amt=parseInt(raw.slice(29,37),16);
+  return amt>0?{no,d,amt}:null}
+const nonce=()=>Date.now().toString(36);
+function hit(title,sub,hash){done=true;$('#frame').classList.add('hit');try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}
+  $('#st').textContent=title;$('#sp').textContent=sub;$('#acts').hidden=false;
+  const url=BOOK+'#'+hash;$('#go').onclick=()=>location.href=url;setTimeout(()=>{if(done)location.href=url},900)}
+function handle(raw,fmt){if(done||!raw)return;raw=String(raw).trim();
+  const inv=parseInv(raw);
+  if(inv){hit('發票 NT$'+inv.amt.toLocaleString('en-US'),inv.d.slice(4,6)+'/'+inv.d.slice(6)+' · '+inv.no+'，正在打開記帳頁…','inv-'+inv.no+'-'+inv.d+'-'+inv.amt+'-'+nonce());return}
+  if(raw.startsWith('**')){$('#st').textContent='這是右邊的 QR Code';$('#sp').textContent='金額在左邊那個，請對準左邊。';return}
+  if(/^\d{8,14}$/.test(raw)&&fmt!=='qr_code'){hit('條碼 '+raw,'正在打開記帳頁…','bc-'+raw+'-'+nonce());return}
+  if(mode==='inv'){$('#st').textContent='這不是發票的 QR Code';$('#sp').textContent='請對準電子發票左邊的 QR Code。'}}
+async function loadJsQR(){if(window.jsQR)return window.jsQR;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)});return window.jsQR}
+async function tick(){if(busy||done||!v.videoWidth)return;busy=true;
+  try{
+    if(det){const r=await det.detect(v);for(const c of r){handle(c.rawValue,c.format);if(done)break}}
+    else{if(!jsqr)jsqr=await loadJsQR();cv=cv||document.createElement('canvas');const w=v.videoWidth,h=v.videoHeight,s=Math.min(w,h)*.8,k=Math.min(1,800/s);
+      cv.width=s*k;cv.height=s*k;const g=cv.getContext('2d',{willReadFrequently:true});g.drawImage(v,(w-s)/2,(h-s)/2,s,s,0,0,cv.width,cv.height);
+      const r=jsqr(g.getImageData(0,0,cv.width,cv.height).data,cv.width,cv.height,{inversionAttempts:'dontInvert'});if(r)handle(r.data,'qr_code')}
+  }catch(e){}busy=false}
+async function start(){$('#err').hidden=true;
+  try{
+    if('BarcodeDetector' in window){const f=await BarcodeDetector.getSupportedFormats();const want=['qr_code','ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>f.includes(x));if(want.includes('qr_code'))det=new BarcodeDetector({formats:want})}
+    if(!det){$('.modes').hidden=true}
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    v.srcObject=stream;await v.play();
+    const tr=stream.getVideoTracks()[0];try{const caps=tr.getCapabilities&&tr.getCapabilities();if(caps&&caps.torch)$('#torch').style.visibility='visible';if(caps&&caps.focusMode&&caps.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}
+    clearInterval(timer);timer=setInterval(tick,200);
+  }catch(e){$('#err').hidden=false;
+    if(e&&e.name==='NotAllowedError'){$('#eh').textContent='需要相機權限';$('#ep').textContent='請在網址列左邊的設定裡允許「相機」，再按再試一次。'}
+    else{$('#eh').textContent='打不開相機';$('#ep').textContent='請確認用 Chrome 打開，而且沒有其他 App 正在用相機。'}}}
+let torchOn=false;
+$('#torch').onclick=async()=>{try{torchOn=!torchOn;await stream.getVideoTracks()[0].applyConstraints({advanced:[{torch:torchOn}]});$('#torch').classList.toggle('on',torchOn)}catch(e){}};
+document.querySelector('.modes').onclick=e=>{const b=e.target.closest('button');if(b)setMode(b.dataset.m)};
+$('#again').onclick=reset;$('#retry').onclick=start;$('#back').onclick=()=>location.href=BOOK;
+document.addEventListener('visibilitychange',()=>{if(document.hidden){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}else{reset();start()}});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+start();
+}
+</script>
+</body>
+</html>
