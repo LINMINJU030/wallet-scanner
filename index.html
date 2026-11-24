@@ -56,15 +56,15 @@ const setMode=m=>{mode=m;for(const b of document.querySelectorAll('.modes button
 function reset(){done=false;$('#frame').classList.remove('hit');$('#acts').hidden=true;
   $('#st').textContent=mode==='inv'?'對準發票左邊的 QR Code':'對準商品上的條碼';$('#sp').textContent='讀到就會自動跳回記帳頁。'}
 function parseInv(raw){if(!/^[A-Z]{2}\d{8}\d{7}[0-9A-Za-z]{4}[0-9a-fA-F]{16}/.test(raw))return null;
-  const no=raw.slice(0,10),y=+raw.slice(10,13)+1911,d=y+raw.slice(13,17),amt=parseInt(raw.slice(29,37),16);
-  return amt>0?{no,d,amt}:null}
+  const no=raw.slice(0,10),y=+raw.slice(10,13)+1911,d=y+raw.slice(13,17),amt=parseInt(raw.slice(29,37),16),sl=raw.slice(45,53);
+  return amt>0?{no,d,amt,seller:/^\d{8}$/.test(sl)&&sl!=='00000000'?sl:''}:null}
 const nonce=()=>Date.now().toString(36);
 function hit(title,sub,hash){done=true;$('#frame').classList.add('hit');try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}
   $('#st').textContent=title;$('#sp').textContent=sub;$('#acts').hidden=false;
   const url=BOOK+'#'+hash;$('#go').onclick=()=>location.href=url;setTimeout(()=>{if(done)location.href=url},900)}
 function handle(raw,fmt){if(done||!raw)return;raw=String(raw).trim();
   const inv=parseInv(raw);
-  if(inv){hit('發票 NT$'+inv.amt.toLocaleString('en-US'),inv.d.slice(4,6)+'/'+inv.d.slice(6)+' · '+inv.no+'，正在打開記帳頁…','inv-'+inv.no+'-'+inv.d+'-'+inv.amt+'-'+nonce());return}
+  if(inv){hit('發票 NT$'+inv.amt.toLocaleString('en-US'),inv.d.slice(4,6)+'/'+inv.d.slice(6)+' · '+inv.no+'，正在打開記帳頁…','inv-'+inv.no+'-'+inv.d+'-'+inv.amt+(inv.seller?'-s'+inv.seller:'')+'-'+nonce());return}
   if(raw.startsWith('**')){$('#st').textContent='這是右邊的 QR Code';$('#sp').textContent='金額在左邊那個，請對準左邊。';return}
   if(/^\d{8,14}$/.test(raw)&&fmt!=='qr_code'){hit('條碼 '+raw,'正在打開記帳頁…','bc-'+raw+'-'+nonce());return}
   if(mode==='inv'){$('#st').textContent='這不是發票的 QR Code';$('#sp').textContent='請對準電子發票左邊的 QR Code。'}}
