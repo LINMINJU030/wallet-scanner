@@ -73,7 +73,8 @@ function handle(raw,fmt){if(done||!raw)return;raw=String(raw).trim();
   const inv=parseInv(raw);
   if(inv){hit('發票 NT$'+inv.amt.toLocaleString('en-US'),inv.d.slice(4,6)+'/'+inv.d.slice(6)+' · '+inv.no+'，正在打開記帳頁…','inv-'+inv.no+'-'+inv.d+'-'+inv.amt+(inv.seller?'-s'+inv.seller:'')+'-'+nonce());return}
   if(raw.startsWith('**')){$('#st').textContent='這是右邊的 QR Code';$('#sp').textContent='金額在左邊那個，請對準左邊。';return}
-  if(/^\d{8,14}$/.test(raw)&&fmt!=='qr_code'){hit('條碼 '+raw,'正在打開記帳頁…','bc-'+raw+'-'+nonce());return}
+  if(fmt!=='qr_code'&&/^[0-9A-Za-z]{6,40}$/.test(raw)){hit('條碼 '+raw,(raw.length>14?'店家自己的標籤，回記帳頁填名稱和價錢…':'正在打開記帳頁…'),'bc-'+raw.toLowerCase()+'-'+nonce());return}
+  if(fmt!=='qr_code'){$('#st').textContent='這個條碼讀不了';$('#sp').textContent='直接在記帳頁打「名稱 價錢」比較快。';return}
   if(mode==='inv'){$('#st').textContent='這不是發票的 QR Code';$('#sp').textContent='請對準電子發票左邊的 QR Code。'}}
 async function loadJsQR(){if(window.jsQR)return window.jsQR;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)});return window.jsQR}
 async function tick(){if(busy||done||!v.videoWidth)return;busy=true;
