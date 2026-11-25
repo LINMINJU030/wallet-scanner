@@ -38,6 +38,8 @@ video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
 #acts2{margin-top:12px}
 .focus{position:fixed;width:70px;height:70px;border:2px solid #f2b37f;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;animation:fz .6s ease-out forwards}
 @keyframes fz{from{opacity:1;transform:translate(-50%,-50%) scale(1.3)}to{opacity:0;transform:translate(-50%,-50%) scale(1)}}
+.ver{position:absolute;right:18px;top:12px;font-size:12px;color:#b5a394}
+.sheet{position:fixed}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -51,7 +53,7 @@ video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
 <div class="frame" id="frame"></div>
 <div class="zooms" id="zooms" hidden></div>
 <div class="modes" role="group" aria-label="掃描種類"><button data-m="inv" aria-pressed="true">發票</button><button data-m="bc" aria-pressed="false">商品條碼</button></div>
-<div class="sheet" id="sheet"><b id="st">對準發票左邊的 QR Code</b><p id="sp">讀到就會自動跳回記帳頁。</p><div class="row" id="acts" hidden><button class="btn g" id="again">再掃一次</button><button class="btn" id="go">回記帳頁</button></div><div class="row" id="acts2"><button class="btn g" id="flip" hidden>換鏡頭</button><button class="btn g" id="photo">拍照辨識</button></div><input type="file" id="pf" accept="image/*" capture="environment" hidden></div>
+<div class="sheet" id="sheet"><span class="ver">v5</span><b id="st">對準發票左邊的 QR Code</b><p id="sp">讀到就會自動跳回記帳頁。</p><div class="row" id="acts" hidden><button class="btn g" id="again">再掃一次</button><button class="btn" id="go">回記帳頁</button></div><div class="row" id="acts2"><button class="btn g" id="flip" hidden>換鏡頭</button><button class="btn g" id="photo">拍照辨識</button></div><input type="file" id="pf" accept="image/*" capture="environment" hidden></div>
 <div class="msg" id="err" hidden><div><h2 id="eh">需要相機權限</h2><p id="ep">請允許使用相機，才能掃描。</p><button class="btn" id="retry" style="min-width:200px">再試一次</button></div></div>
 <script>
 {
@@ -122,7 +124,9 @@ $('#torch').onclick=async()=>{try{torchOn=!torchOn;await stream.getVideoTracks()
 document.querySelector('.modes').onclick=e=>{const b=e.target.closest('button');if(b)setMode(b.dataset.m)};
 $('#again').onclick=reset;$('#retry').onclick=start;$('#back').onclick=()=>location.href=BOOK;
 document.addEventListener('visibilitychange',()=>{if(document.hidden){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}else{reset();start()}});
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){let reloaded=false;const had=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!reloaded){reloaded=true;location.reload()}});
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>{r.update().catch(()=>{});document.addEventListener('visibilitychange',()=>{if(!document.hidden)r.update().catch(()=>{})})}).catch(()=>{})}
 start();
 }
 </script>
