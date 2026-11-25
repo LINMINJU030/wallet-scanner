@@ -33,6 +33,11 @@ video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
 .btn.g{background:#efe5da;color:var(--ink)}
 .msg{position:fixed;inset:0;display:grid;place-items:center;padding:32px;text-align:center;background:var(--cream);color:var(--ink)}
 .msg h2{font-size:22px;margin-bottom:8px}.msg p{color:#7a6658;margin-bottom:18px}
+.zooms{position:fixed;left:50%;top:calc(44% - min(39vw,170px) - 58px);transform:translateX(-50%);display:flex;gap:6px;background:#0008;padding:4px;border-radius:999px}
+.zooms button{border:0;border-radius:999px;background:none;color:#ddd;min-width:48px;min-height:40px;font-size:15px}.zooms button[aria-pressed=true]{background:var(--cream);color:var(--ink);font-weight:700}
+#acts2{margin-top:12px}
+.focus{position:fixed;width:70px;height:70px;border:2px solid #f2b37f;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;animation:fz .6s ease-out forwards}
+@keyframes fz{from{opacity:1;transform:translate(-50%,-50%) scale(1.3)}to{opacity:0;transform:translate(-50%,-50%) scale(1)}}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -44,14 +49,16 @@ video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover}
   <button class="ib" id="torch" aria-label="手電筒" style="visibility:hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6v5l-2 3v12h-2V10L9 7z"/></svg></button>
 </div>
 <div class="frame" id="frame"></div>
+<div class="zooms" id="zooms" hidden></div>
 <div class="modes" role="group" aria-label="掃描種類"><button data-m="inv" aria-pressed="true">發票</button><button data-m="bc" aria-pressed="false">商品條碼</button></div>
-<div class="sheet" id="sheet"><b id="st">對準發票左邊的 QR Code</b><p id="sp">讀到就會自動跳回記帳頁。</p><div class="row" id="acts" hidden><button class="btn g" id="again">再掃一次</button><button class="btn" id="go">回記帳頁</button></div></div>
+<div class="sheet" id="sheet"><b id="st">對準發票左邊的 QR Code</b><p id="sp">讀到就會自動跳回記帳頁。</p><div class="row" id="acts" hidden><button class="btn g" id="again">再掃一次</button><button class="btn" id="go">回記帳頁</button></div><div class="row" id="acts2"><button class="btn g" id="flip" hidden>換鏡頭</button><button class="btn g" id="photo">拍照辨識</button></div><input type="file" id="pf" accept="image/*" capture="environment" hidden></div>
 <div class="msg" id="err" hidden><div><h2 id="eh">需要相機權限</h2><p id="ep">請允許使用相機，才能掃描。</p><button class="btn" id="retry" style="min-width:200px">再試一次</button></div></div>
 <script>
 {
 const BOOK='https://claude.ai/artifact/AyNrWg5fySidkmtUmR9VBo';
 const $=s=>document.querySelector(s);
-const v=$('#v');let mode='inv',stream=null,det=null,busy=false,done=false,timer=null,jsqr=null,cv=null;
+const v=$('#v');let cams=[],camId=null,zoomCaps=null;try{camId=localStorage.getItem('scanCam')}catch(e){}
+let mode='inv',stream=null,det=null,busy=false,done=false,timer=null,jsqr=null,cv=null;
 const setMode=m=>{mode=m;for(const b of document.querySelectorAll('.modes button'))b.setAttribute('aria-pressed',b.dataset.m===m);reset()};
 function reset(){done=false;$('#frame').classList.remove('hit');$('#acts').hidden=true;
   $('#st').textContent=mode==='inv'?'對準發票左邊的 QR Code':'對準商品上的條碼';$('#sp').textContent='讀到就會自動跳回記帳頁。'}
@@ -80,14 +87,36 @@ async function start(){$('#err').hidden=true;
   try{
     if('BarcodeDetector' in window){const f=await BarcodeDetector.getSupportedFormats();const want=['qr_code','ean_13','ean_8','upc_a','upc_e','code_128'].filter(x=>f.includes(x));if(want.includes('qr_code'))det=new BarcodeDetector({formats:want})}
     if(!det){$('.modes').hidden=true}
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+    const vc={width:{ideal:1920},height:{ideal:1080}};
+    if(camId)vc.deviceId={exact:camId};else vc.facingMode={ideal:'environment'};
+    stream=await navigator.mediaDevices.getUserMedia({video:vc,audio:false});
+    if(!cams.length){try{const all=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+      cams=all.filter(d=>/back|rear|environment|後|背/i.test(d.label));if(!cams.length)cams=all;
+      const main=cams.find(d=>/camera2 0|camera 0|\b0\b/i.test(d.label));const cur=stream.getVideoTracks()[0].getSettings().deviceId;
+      if(main&&main.deviceId!==cur){camId=main.deviceId;try{localStorage.setItem('scanCam',camId)}catch(e){}return start()}
+      camId=cur}catch(e){}}
+    $('#flip').hidden=cams.length<2;
     v.srcObject=stream;await v.play();
-    const tr=stream.getVideoTracks()[0];try{const caps=tr.getCapabilities&&tr.getCapabilities();if(caps&&caps.torch)$('#torch').style.visibility='visible';if(caps&&caps.focusMode&&caps.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}
+    const tr=stream.getVideoTracks()[0];try{const caps=tr.getCapabilities&&tr.getCapabilities();if(caps&&caps.torch)$('#torch').style.visibility='visible';if(caps&&caps.focusMode&&caps.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]});
+      zoomCaps=caps&&caps.zoom?caps.zoom:null;const z=$('#zooms');if(zoomCaps&&zoomCaps.max>=1.8){const opts=[1,2,3].filter(x=>x>=zoomCaps.min&&x<=zoomCaps.max);z.innerHTML=opts.map(x=>'<button data-z="'+x+'" aria-pressed="'+(x===1)+'">'+x+'x</button>').join('');z.hidden=false}else z.hidden=true}catch(e){}
+    clearTimeout(tipT);tipT=setTimeout(()=>{if(!done){$('#sp').textContent='掃不到？拿遠一點、按上面 2x 放大，或點畫面對焦。'}},7000);
     clearInterval(timer);timer=setInterval(tick,200);
   }catch(e){$('#err').hidden=false;
     if(e&&e.name==='NotAllowedError'){$('#eh').textContent='需要相機權限';$('#ep').textContent='請在網址列左邊的設定裡允許「相機」，再按再試一次。'}
     else{$('#eh').textContent='打不開相機';$('#ep').textContent='請確認用 Chrome 打開，而且沒有其他 App 正在用相機。'}}}
-let torchOn=false;
+let torchOn=false,tipT=null;
+$('#zooms').onclick=async e=>{const b=e.target.closest('[data-z]');if(!b||!stream)return;try{await stream.getVideoTracks()[0].applyConstraints({advanced:[{zoom:+b.dataset.z}]});for(const x of $('#zooms').children)x.setAttribute('aria-pressed',x===b)}catch(err){}};
+$('#flip').onclick=()=>{if(cams.length<2)return;const i=cams.findIndex(c=>c.deviceId===camId);camId=cams[(i+1)%cams.length].deviceId;try{localStorage.setItem('scanCam',camId)}catch(e){}start()};
+v.addEventListener('click',async e=>{const f=document.createElement('div');f.className='focus';f.style.left=e.clientX+'px';f.style.top=e.clientY+'px';document.body.appendChild(f);setTimeout(()=>f.remove(),700);
+  if(!stream)return;const tr=stream.getVideoTracks()[0];try{const pt={x:e.clientX/innerWidth,y:e.clientY/innerHeight};await tr.applyConstraints({advanced:[{pointsOfInterest:[pt],focusMode:'single-shot'}]});setTimeout(()=>tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{}),1500)}catch(err){try{await tr.applyConstraints({advanced:[{focusMode:'single-shot'}]})}catch(e2){}}});
+$('#photo').onclick=()=>$('#pf').click();
+$('#pf').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;$('#st').textContent='讀取照片中…';
+  try{const img=await createImageBitmap(file);let found=null;
+    if(det){try{const r=await det.detect(img);for(const c of r){handle(c.rawValue,c.format);if(done){found=1;break}}}catch(err){}}
+    if(!done){const jq=await loadJsQR();for(const max of [1600,1100,2400]){const k=Math.min(1,max/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=img.width*k;c.height=img.height*k;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(img,0,0,c.width,c.height);const r=jq(g.getImageData(0,0,c.width,c.height).data,c.width,c.height,{inversionAttempts:'attemptBoth'});if(r){handle(r.data,'qr_code');if(done)break}}}
+    if(!done){$('#st').textContent='這張照片也讀不到';$('#sp').textContent='對準發票左邊的 QR Code，拍清楚一點、不要反光再試一次。'}
+  }catch(err){$('#st').textContent='照片讀不了';$('#sp').textContent='再拍一次試試。'}};
 $('#torch').onclick=async()=>{try{torchOn=!torchOn;await stream.getVideoTracks()[0].applyConstraints({advanced:[{torch:torchOn}]});$('#torch').classList.toggle('on',torchOn)}catch(e){}};
 document.querySelector('.modes').onclick=e=>{const b=e.target.closest('button');if(b)setMode(b.dataset.m)};
 $('#again').onclick=reset;$('#retry').onclick=start;$('#back').onclick=()=>location.href=BOOK;
